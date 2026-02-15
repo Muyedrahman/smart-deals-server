@@ -9,10 +9,40 @@ const port = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json())
 
+const logger = (req, res, next) =>{
+  console.log('logging info')
+  next();
+}
+
+const verifyFireBaseToken = async(req, res, next) => {
+  console.log("in the verify middleware", req.headers.authorization);
+  if (!req.headers.authorization) {
+    // Do not allow to go
+    return res.status(401).send({ message: "unauthorize access" });
+  }
+  const token = req.headers.authorization.split(" ")[1];
+  if (!token) {
+    return res.status(401).send({ message: "unauthorized access" });
+  }
+
+  // verify token
+  try {
+    const userInfo = await admin.auth().verifyIdToken(token);
+    req.token_email = userInfo.email; 
+    console.log("after token validation", userInfo);
+    next();
+  } catch {
+    return res.status(401).send({ message: "unauthorized access" });
+  }
+
+  //
+ 
+}
+
 
 // smartdbUser
 // dcJSNLPHY7JLW3Cw
-const uri = `mongodb+srv://${process.env.DB_USER}: ${process.env.DB_PASS} @cluster0.fkciokq.mongodb.net/?appName=Cluster0`;
+const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.fkciokq.mongodb.net/?appName=Cluster0`;
 
 const client = new MongoClient(uri, {
   serverApi: {
@@ -104,6 +134,7 @@ async function run (){
       
 
         app.post("/products", async(req, res) =>{
+          console.log('headers in the post', req.headers)
             const newProduct = req.body;
             const result = await productsCollection.insertOne(newProduct);
             res.send(result);
@@ -136,11 +167,15 @@ async function run (){
         })
 
 
-        // bids related api
-        app.get('/bids', async(req, res) =>{
+        // bids related apis
+        app.get('/bids',logger, verifyFireBaseToken, async(req, res) =>{
+          // console.log('headers', req.headers)
             const email = req.query.email;
             const query = {};
             if(email){
+              if(email !== req.token_email){
+                return res.status(403).send({message: 'forbidden message'})
+              }
                 query.buyer_email = email;
             }
 
@@ -156,7 +191,7 @@ async function run (){
             const result = await bidsCollection.insertOne(newBid);
             res.send(result);
         })
-          app.get("/products/bids/:productId", async (req, res) => {
+          app.get("/products/bids/:productId", verifyFireBaseToken, async (req, res) => {
             const productId = req.params.productId;
             const query = { product: productId };
             const cursor = bidsCollection.find(query).sort({bid_price: -1});
